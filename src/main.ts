@@ -550,14 +550,8 @@ function createWindow(): BrowserWindow {
     title: "nanobot",
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 14, y: 16 },
-    backgroundColor: process.platform === "darwin" ? "#00000000" : "#ffffff",
-    transparent: process.platform === "darwin",
-    ...(process.platform === "darwin"
-      ? {
-          vibrancy: "sidebar" as const,
-          visualEffectState: "active" as const,
-        }
-      : {}),
+    // 不透明窗口：透明+毛玻璃在 Electron 中持续拉高 WindowServer/GPU 负载，是 UI 卡顿主因
+    backgroundColor: "#ffffff",
     show: false,
     webPreferences: {
       preload,
@@ -573,7 +567,13 @@ function createWindow(): BrowserWindow {
   win.on("close", (event) => {
     if (process.platform !== "darwin" || isQuitting) return;
     event.preventDefault();
-    win.hide();
+    // 全屏窗口不能直接 hide（会留下黑屏空间），先退出全屏再隐藏
+    if (win.isFullScreen()) {
+      win.once("leave-full-screen", () => win.hide());
+      win.setFullScreen(false);
+    } else {
+      win.hide();
+    }
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
     openExternalIfSafe(url);
