@@ -698,11 +698,6 @@ async function loadAppWindow(win: BrowserWindow): Promise<void> {
   }
 }
 
-// D7: 禁用硬件加速——Electron 42 在 macOS 26 上的 GPU 合成器存在兼容问题（GPU 进程空闲空转、主线程停滞），
-// 导致界面交互（发消息/切换会话/滚动）掉帧卡顿。回退到 CPU 软件合成后交互恢复流畅。
-// 必须在 app ready 之前调用。
-app.disableHardwareAcceleration();
-
 app.whenReady().then(async () => {
   const root = repoRoot();
   const webDist = webDistPath(root);
