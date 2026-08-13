@@ -12,3 +12,6 @@ build/*
 
 # electron-builder 打包产物（npm run dist:* 可复现）
 dist/
+
+# WebUI 构建产物暂存（打包时由外部 dist 拷贝，见 docs/webui-sync.md）
+.webui-dist/

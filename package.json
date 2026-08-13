@@ -28,7 +28,7 @@
     ],
     "extraResources": [
       {
-        "from": "../nanobot/web/dist",
+        "from": ".webui-dist",
         "to": "nanobot-webui"
       }
     ],

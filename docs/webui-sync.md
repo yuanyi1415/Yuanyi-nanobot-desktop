@@ -40,11 +40,13 @@ The host loads `http://127.0.0.1:5173` in development, so React changes hot relo
 3. Build the app:
 
    ```sh
+   cd desktop
+   mkdir -p .webui-dist && cp -R ../nanobot/web/dist/* .webui-dist/
    bun run make:mac:arm64
    bun run make:mac:x64
    ```
 
-   `electron-builder` packages `nanobot/web/dist` as `Resources/nanobot-webui`.
+   `electron-builder` packages the staged WebUI (`.webui-dist/`) as `Resources/nanobot-webui`. The staging directory is gitignored; refresh it whenever the WebUI dist changes before packaging. (Do not point `extraResources.from` at an absolute host path — the repo must stay host-neutral.)
 
 ## Checklist
 
