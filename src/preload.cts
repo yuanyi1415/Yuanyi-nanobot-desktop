@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld("nanobotHost", {
   openLogs: (): Promise<void> => ipcRenderer.invoke("nanobot:open-logs"),
   exportDiagnostics: (): Promise<string> =>
     ipcRenderer.invoke("nanobot:export-diagnostics"),
+  openFile: (path: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke("nanobot:open-file", path),
   checkForUpdates: (): Promise<{ supported: boolean; message?: string }> =>
     ipcRenderer.invoke("nanobot:check-for-updates"),
   openSocket: (url: string): Promise<string> =>

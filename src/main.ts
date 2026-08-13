@@ -642,6 +642,19 @@ function registerIpcHandlers(): void {
     shell.showItemInFolder(diagnosticsPath);
     return diagnosticsPath;
   });
+  handleHostIpc("nanobot:open-file", async (_event, rawPath) => {
+    if (typeof rawPath !== "string" || !rawPath.trim()) {
+      throw new Error("Invalid open-file argument");
+    }
+    try {
+      const error = await shell.openPath(rawPath);
+      return error ? { ok: false, error } : { ok: true };
+    } catch (e) {
+      // Windows 无关联应用时 openPath 可能 reject（ELECTRON-C7 坑）；
+      // macOS 一般返回空字符串表示成功。
+      return { ok: false, error: String(e) };
+    }
+  });
   handleHostIpc("nanobot:check-for-updates", () => ({
     supported: false,
     message: "Auto update is not configured for this build.",
