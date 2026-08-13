@@ -1,0 +1,46 @@
+{
+  "name": "@nanobot/desktop",
+  "version": "0.2.1",
+  "private": true,
+  "type": "module",
+  "main": "build/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "npm run build && electron .",
+    "dev:webui": "cd ../webui && bun run dev",
+    "start": "electron .",
+    "dist:mac:arm64": "npm run build && electron-builder --mac dmg --arm64",
+    "dist:mac:x64": "npm run build && electron-builder --mac dmg --x64"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "electron": "^42.3.0",
+    "electron-builder": "^26.8.1",
+    "typescript": "^5.7.2"
+  },
+  "build": {
+    "appId": "wiki.nanobot.desktop",
+    "productName": "nanobot",
+    "asar": true,
+    "files": [
+      "build/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../nanobot/web/dist",
+        "to": "nanobot-webui"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.icns",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "nanobot uses the microphone to transcribe voice input before you send messages."
+      },
+      "target": [
+        "dmg"
+      ]
+    }
+  }
+}

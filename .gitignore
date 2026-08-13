@@ -1,0 +1,11 @@
+# 依赖与本地环境
+node_modules/
+.DS_Store
+*.log
+
+# 编译产物（npm run build 可复现）
+build/*
+!build/icon.png
+!build/icon.icns
+!build/icon.iconset/
+!build/icon.iconset/*
