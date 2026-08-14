@@ -36,6 +36,32 @@ const streamTextBuffers = new Map<string, string>();
 // it is clicked, closed, or fails (2026-08-14 fix).
 const activeNotifications = new Set<Notification>();
 
+// A single agent turn streams several text segments, each ending with its own
+// stream_end (one per tool call boundary). Only the first segment of a turn
+// should raise a desktop notification, otherwise one reply spams N toasts.
+// stream_id looks like "websocket:{chat_id}:{turn_ns}:{segment}"; the base
+// (everything before the trailing numeric segment) identifies the turn.
+const notifiedStreamBases = new Set<string>();
+const NOTIFIED_BASE_LIMIT = 512;
+
+function streamBaseId(streamId: unknown): string | null {
+  if (typeof streamId !== "string") return null;
+  const idx = streamId.lastIndexOf(":");
+  if (idx <= 0) return null;
+  return /^\d+$/.test(streamId.slice(idx + 1)) ? streamId.slice(0, idx) : null;
+}
+
+function claimTurnNotification(streamId: unknown): boolean {
+  const base = streamBaseId(streamId);
+  if (!base) return true; // unknown stream shape: keep notifying
+  if (notifiedStreamBases.has(base)) return false;
+  if (notifiedStreamBases.size >= NOTIFIED_BASE_LIMIT) {
+    notifiedStreamBases.clear();
+  }
+  notifiedStreamBases.add(base);
+  return true;
+}
+
 // Minimal debug log for notification diagnosis (2026-08-14). Written to the app
 // user-data dir; safe to remove once notification delivery is stable.
 const notifyLogPath = (): string => path.join(app.getPath("userData"), "notify-debug.log");
@@ -109,9 +135,12 @@ function notificationFrameFromWsFrame(frame: WsMessageFrame): WsMessageFrame & {
       ? frame.text
       : streamTextBuffers.get(key) ?? "";
     streamTextBuffers.delete(key);
-    return text.trim().length > 0
-      ? { ...frame, chat_id: frame.chat_id, text }
-      : null;
+    if (text.trim().length === 0) return null;
+    if (!claimTurnNotification(frame.stream_id)) {
+      logNotify("skip (same turn already notified)");
+      return null;
+    }
+    return { ...frame, chat_id: frame.chat_id, text };
   }
   return null;
 }
