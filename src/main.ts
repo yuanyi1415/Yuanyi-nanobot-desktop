@@ -40,6 +40,13 @@ let runtime: HostRuntime | null = null;
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
 const hostSockets = new Map<string, UnixWebSocketClient>();
+
+// Disable macOS overlay scrollbars before app ready: overlay scrollbars ignore
+// ::-webkit-scrollbar styling and hide until the user actively scrolls, which
+// made wide-table/panel horizontal scrollbars invisible (2026-08-13 实测：
+// headed Chromium 中 webkit-scrollbar 生效需关闭 overlay 特性).
+app.commandLine.appendSwitch("disable-features", "OverlayScrollbar");
+
 const APP_PROTOCOL = "nanobot-app:";
 const APP_HOST = "app";
 const HOST_SOCKET_PROTOCOL = "nanobot-host:";

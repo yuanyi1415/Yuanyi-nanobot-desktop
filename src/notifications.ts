@@ -3,6 +3,8 @@ import {
   BrowserWindow,
   Notification,
 } from "electron";
+import { appendFileSync } from "node:fs";
+import path from "node:path";
 
 type NotificationSource = {
   kind?: unknown;
@@ -28,6 +30,24 @@ const MAX_NOTIFICATION_TITLE_LENGTH = 80;
 let unreadNotificationCount = 0;
 const streamTextBuffers = new Map<string, string>();
 
+// Keep a reference to every live notification. On macOS a Notification whose JS
+// object has been garbage-collected keeps showing in Notification Center, but its
+// click handler is gone — clicking it then does nothing. We hold the object until
+// it is clicked, closed, or fails (2026-08-14 fix).
+const activeNotifications = new Set<Notification>();
+
+// Minimal debug log for notification diagnosis (2026-08-14). Written to the app
+// user-data dir; safe to remove once notification delivery is stable.
+const notifyLogPath = (): string => path.join(app.getPath("userData"), "notify-debug.log");
+
+function logNotify(message: string): void {
+  try {
+    appendFileSync(notifyLogPath(), `${new Date().toISOString()} ${message}\n`);
+  } catch {
+    // logging must never break notification flow
+  }
+}
+
 export function handleDesktopNotificationFrame(
   data: string,
   options: DesktopNotifierOptions,
@@ -36,6 +56,7 @@ export function handleDesktopNotificationFrame(
   const notificationFrame = frame ? notificationFrameFromWsFrame(frame) : null;
   if (!notificationFrame) return;
   if (!shouldNotify(options.getWindow())) return;
+  logNotify(`show title=${notificationTitle(frame?.source)}`);
   showDesktopNotification(notificationFrame, options);
 }
 
@@ -113,12 +134,23 @@ function showDesktopNotification(
   const notification = new Notification({
     title: notificationTitle(frame.source),
     body: notificationBody(frame.text),
-    subtitle: "nanobot",
   });
+  activeNotifications.add(notification);
+  const release = () => {
+    activeNotifications.delete(notification);
+  };
   notification.on("failed", (_event, error) => {
+    logNotify(`failed: ${String(error)}`);
     console.warn(`[nanobot] Desktop notification failed: ${error}`);
+    release();
   });
-  notification.on("click", () => openChatFromNotification(frame.chat_id, options));
+  notification.on("show", () => logNotify("shown"));
+  notification.on("close", release);
+  notification.on("click", () => {
+    release();
+    logNotify("clicked");
+    openChatFromNotification(frame.chat_id, options);
+  });
   notification.show();
   unreadNotificationCount += 1;
   app.setBadgeCount(unreadNotificationCount);
@@ -129,7 +161,7 @@ function notificationTitle(source: NotificationSource | undefined): string {
     const label = source.label.trim();
     if (label) return truncateText(label, MAX_NOTIFICATION_TITLE_LENGTH);
   }
-  return "nanobot";
+  return "沫沫";
 }
 
 function notificationBody(text: string): string {
