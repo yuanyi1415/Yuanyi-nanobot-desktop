@@ -39,11 +39,17 @@ const activeNotifications = new Set<Notification>();
 // A single agent turn streams several text segments, each ending with its own
 // stream_end (one per tool call boundary). Only the final segment of a turn is
 // the real answer, so we defer notifications: cache the latest segment text per
-// chat, then fire exactly one toast when turn_end arrives (or after a timeout
-// in case the turn never completes cleanly). 2026-08-14.
+// chat, then fire exactly one toast when turn_end arrives.
+//
+// The only other path to a toast is an idle fallback: if a turn stalls with no
+// frames at all for TURN_IDLE_TIMEOUT_MS we flush what we have so the user is
+// not left hanging. The timeout is deliberately long and reset by ANY activity
+// frame (delta/reasoning/tool/progress/stream_end) — a long-running turn must
+// never pop intermediate segments while it is still alive (2026-08-14 fix: was
+// 15s per stream_end, which spammed mid-turn toasts on long tool chains).
 const pendingTurnTexts = new Map<string, string>();
 const pendingTurnTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const TURN_FLUSH_TIMEOUT_MS = 15_000;
+const TURN_IDLE_TIMEOUT_MS = 300_000; // 5 min without ANY frame = stalled
 const PENDING_CHAT_LIMIT = 128;
 
 function deferTurnNotification(chatId: string, text: string): void {
@@ -53,11 +59,19 @@ function deferTurnNotification(chatId: string, text: string): void {
     pendingTurnTimers.clear();
   }
   pendingTurnTexts.set(chatId, text);
+  resetTurnIdleTimer(chatId);
+}
+
+// Any live frame means the turn is still running: postpone the idle fallback.
+// Only chats that already hold a deferred segment can ever toast, so skip the
+// rest (a bare delta stream without stream_end has nothing to flush).
+function resetTurnIdleTimer(chatId: string): void {
+  if (!pendingTurnTexts.has(chatId)) return;
   const existing = pendingTurnTimers.get(chatId);
   if (existing) clearTimeout(existing);
   pendingTurnTimers.set(
     chatId,
-    setTimeout(() => flushDeferredNotification(chatId), TURN_FLUSH_TIMEOUT_MS),
+    setTimeout(() => flushDeferredNotification(chatId), TURN_IDLE_TIMEOUT_MS),
   );
 }
 
@@ -100,6 +114,12 @@ export function handleDesktopNotificationFrame(
   setWindowGetter(options.getWindow);
   const frame = parseWsMessageFrame(data);
   if (!frame) return;
+  // Any activity frame (delta/reasoning/tool/progress/stream_end/message) proves
+  // the turn is alive — reset the idle fallback so mid-turn segments never pop.
+  // turn_end is handled below (flush) and must not touch the timer.
+  if (frame.event !== "turn_end" && typeof frame.chat_id === "string") {
+    resetTurnIdleTimer(frame.chat_id);
+  }
   if (frame.event === "stream_end" && typeof frame.chat_id === "string") {
     const key = streamNotificationKey(frame);
     const text = typeof frame.text === "string"
