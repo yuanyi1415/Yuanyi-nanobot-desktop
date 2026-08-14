@@ -37,29 +37,48 @@ const streamTextBuffers = new Map<string, string>();
 const activeNotifications = new Set<Notification>();
 
 // A single agent turn streams several text segments, each ending with its own
-// stream_end (one per tool call boundary). Only the first segment of a turn
-// should raise a desktop notification, otherwise one reply spams N toasts.
-// stream_id looks like "websocket:{chat_id}:{turn_ns}:{segment}"; the base
-// (everything before the trailing numeric segment) identifies the turn.
-const notifiedStreamBases = new Set<string>();
-const NOTIFIED_BASE_LIMIT = 512;
+// stream_end (one per tool call boundary). Only the final segment of a turn is
+// the real answer, so we defer notifications: cache the latest segment text per
+// chat, then fire exactly one toast when turn_end arrives (or after a timeout
+// in case the turn never completes cleanly). 2026-08-14.
+const pendingTurnTexts = new Map<string, string>();
+const pendingTurnTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const TURN_FLUSH_TIMEOUT_MS = 15_000;
+const PENDING_CHAT_LIMIT = 128;
 
-function streamBaseId(streamId: unknown): string | null {
-  if (typeof streamId !== "string") return null;
-  const idx = streamId.lastIndexOf(":");
-  if (idx <= 0) return null;
-  return /^\d+$/.test(streamId.slice(idx + 1)) ? streamId.slice(0, idx) : null;
+function deferTurnNotification(chatId: string, text: string): void {
+  if (pendingTurnTexts.size >= PENDING_CHAT_LIMIT && !pendingTurnTexts.has(chatId)) {
+    pendingTurnTexts.clear();
+    for (const timer of pendingTurnTimers.values()) clearTimeout(timer);
+    pendingTurnTimers.clear();
+  }
+  pendingTurnTexts.set(chatId, text);
+  const existing = pendingTurnTimers.get(chatId);
+  if (existing) clearTimeout(existing);
+  pendingTurnTimers.set(
+    chatId,
+    setTimeout(() => flushDeferredNotification(chatId), TURN_FLUSH_TIMEOUT_MS),
+  );
 }
 
-function claimTurnNotification(streamId: unknown): boolean {
-  const base = streamBaseId(streamId);
-  if (!base) return true; // unknown stream shape: keep notifying
-  if (notifiedStreamBases.has(base)) return false;
-  if (notifiedStreamBases.size >= NOTIFIED_BASE_LIMIT) {
-    notifiedStreamBases.clear();
-  }
-  notifiedStreamBases.add(base);
-  return true;
+function flushDeferredNotification(chatId: string): void {
+  const timer = pendingTurnTimers.get(chatId);
+  if (timer) clearTimeout(timer);
+  pendingTurnTimers.delete(chatId);
+  const text = pendingTurnTexts.get(chatId);
+  pendingTurnTexts.delete(chatId);
+  const notificationFrame = text && text.trim().length > 0
+    ? { chat_id: chatId, text }
+    : null;
+  if (!notificationFrame) return;
+  if (!shouldNotify(getWindowRef())) return;
+  logNotify(`show title=沫沫`);
+  showDesktopNotification(notificationFrame, { getWindow: getWindowRef });
+}
+
+let getWindowRef: () => BrowserWindow | null = () => null;
+function setWindowGetter(fn: () => BrowserWindow | null): void {
+  getWindowRef = fn;
 }
 
 // Minimal debug log for notification diagnosis (2026-08-14). Written to the app
@@ -78,8 +97,25 @@ export function handleDesktopNotificationFrame(
   data: string,
   options: DesktopNotifierOptions,
 ): void {
+  setWindowGetter(options.getWindow);
   const frame = parseWsMessageFrame(data);
-  const notificationFrame = frame ? notificationFrameFromWsFrame(frame) : null;
+  if (!frame) return;
+  if (frame.event === "stream_end" && typeof frame.chat_id === "string") {
+    const key = streamNotificationKey(frame);
+    const text = typeof frame.text === "string"
+      ? frame.text
+      : streamTextBuffers.get(key) ?? "";
+    streamTextBuffers.delete(key);
+    if (text.trim().length > 0) {
+      deferTurnNotification(frame.chat_id, text);
+    }
+    return;
+  }
+  if (frame.event === "turn_end" && typeof frame.chat_id === "string") {
+    flushDeferredNotification(frame.chat_id);
+    return;
+  }
+  const notificationFrame = notificationFrameFromWsFrame(frame);
   if (!notificationFrame) return;
   if (!shouldNotify(options.getWindow())) return;
   logNotify(`show title=${notificationTitle(frame?.source)}`);
@@ -128,19 +164,6 @@ function notificationFrameFromWsFrame(frame: WsMessageFrame): WsMessageFrame & {
       streamTextBuffers.set(key, `${streamTextBuffers.get(key) ?? ""}${frame.text}`);
     }
     return null;
-  }
-  if (frame.event === "stream_end" && typeof frame.chat_id === "string") {
-    const key = streamNotificationKey(frame);
-    const text = typeof frame.text === "string"
-      ? frame.text
-      : streamTextBuffers.get(key) ?? "";
-    streamTextBuffers.delete(key);
-    if (text.trim().length === 0) return null;
-    if (!claimTurnNotification(frame.stream_id)) {
-      logNotify("skip (same turn already notified)");
-      return null;
-    }
-    return { ...frame, chat_id: frame.chat_id, text };
   }
   return null;
 }
