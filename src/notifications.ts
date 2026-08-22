@@ -206,6 +206,8 @@ function showDesktopNotification(
   const notification = new Notification({
     title: notificationTitle(frame.source),
     body: notificationBody(frame.text),
+    // Keep the notification visually tied to the signed nanobot bundle.
+    icon: path.join(app.getAppPath(), "build", "icon.png"),
   });
   activeNotifications.add(notification);
   const release = () => {

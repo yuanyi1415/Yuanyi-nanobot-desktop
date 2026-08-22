@@ -65,7 +65,11 @@ const GATEWAY_PORT = Number(process.env.NANOBOT_DESKTOP_GATEWAY_PORT || 8765);
 // D3: rewrite surface/capabilities to the native profile (mirrors
 // nanobot/webui/settings_api.py native capabilities).
 const NATIVE_RUNTIME_CAPABILITIES = {
-  can_restart_engine: true,
+  // D1: the gateway is an external launchd-managed service; the shell does
+  // not own engine lifecycle, so the restart capability must not be
+  // advertised (the WebUI restart button would otherwise appear to work
+  // while the handler is a no-op).
+  can_restart_engine: false,
   can_pick_folder: true,
   can_open_logs: true,
   can_export_diagnostics: true,
